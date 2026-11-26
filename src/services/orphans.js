@@ -146,6 +146,51 @@ export async function findOrphans({ projectKey = null, maxResults = 20 } = {}) {
   return sortOrphans(orphans).slice(0, maxResults);
 }
 
+/**
+ * People with open work + their away status — the roster for the Radar
+ * "mark away" UI (BUG #5, 26 Nov 2026). The viewer is included even with no
+ * open issues so they can mark themselves away. Sorted by open-issue count.
+ */
+export async function listTeamMembers({ viewerAccountId = null } = {}) {
+  const flags = await away.getAllAwayFlags();
+  const open = await jira.searchIssues('resolution = Unresolved ORDER BY updated DESC', 50);
+  const byId = new Map();
+  for (const issue of open) {
+    const a = issue.fields?.assignee;
+    if (!a?.accountId) continue;
+    const entry = byId.get(a.accountId) ?? {
+      accountId: a.accountId,
+      name: a.displayName ?? a.accountId,
+      openCount: 0,
+    };
+    entry.openCount += 1;
+    byId.set(a.accountId, entry);
+  }
+  if (viewerAccountId && !byId.has(viewerAccountId)) {
+    try {
+      const me = await jira.getUser(viewerAccountId);
+      byId.set(viewerAccountId, {
+        accountId: viewerAccountId,
+        name: me.displayName ?? viewerAccountId,
+        openCount: 0,
+      });
+    } catch {
+      // Viewer lookup is best-effort; the roster still works without them.
+    }
+  }
+  return [...byId.values()]
+    .map((m) => {
+      const flag = flags[m.accountId] ?? null;
+      return {
+        ...m,
+        away: Boolean(flag),
+        returnDate: flag?.returnDate ?? null,
+        note: flag?.note ?? '',
+      };
+    })
+    .sort((a, b) => b.openCount - a.openCount);
+}
+
 /** Reassign + post a handover comment (ADF) with the context. */
 export async function executeHandover({ issueKey, successorAccountId, note = '' }) {
   const issue = await jira.getIssue(issueKey);

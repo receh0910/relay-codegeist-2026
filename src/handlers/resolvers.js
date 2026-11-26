@@ -34,13 +34,32 @@ const run = (fn) => async (req) => {
 export const handler = makeResolver({
   getOrphans: run(async (payload) => orphans.findOrphans(payload)),
 
-  suggestSuccessors: run(async (payload) => orphans.suggestSuccessors(payload)),
+  // BUG #5 (26 Nov 2026): the issue panel crashed because
+  // `useProductContext()` returns `undefined` on its first render. The
+  // frontend now reads the context via view.getContext(), and the resolver
+  // ALSO derives the issue key from req.context.extension.issue.key when the
+  // payload carries none — Forge passes the product context to resolvers
+  // invoked from UI Kit. The derived key is returned so the frontend can
+  // display it and use it for the handover call.
+  suggestSuccessors: run(async (payload, { context }) => {
+    const issueKey = payload.issueKey ?? issueKeyFromContext(context);
+    const result = await orphans.suggestSuccessors({ ...payload, issueKey });
+    return { ...result, issueKey };
+  }),
 
-  executeHandover: run(async (payload) => orphans.executeHandover(payload)),
+  executeHandover: run(async (payload, { context }) => {
+    const issueKey = payload.issueKey ?? issueKeyFromContext(context);
+    return orphans.executeHandover({ ...payload, issueKey });
+  }),
 
   getHandoverPacket: run(async (payload) => orphans.getHandoverPacket(payload)),
 
   getAwayFlags: run(async () => away.getAllAwayFlags()),
+
+  // BUG #5: roster behind the Radar "mark away" UI.
+  getTeamMembers: run(async (payload, { accountId }) =>
+    orphans.listTeamMembers({ viewerAccountId: accountId })
+  ),
 
   setAwayFlag: run(async (payload, { accountId }) =>
     away.setAwayFlag(payload.accountId, { returnDate: payload.returnDate, note: payload.note }, accountId)
@@ -51,3 +70,8 @@ export const handler = makeResolver({
     return { cleared: payload.accountId };
   }),
 });
+
+// BUG #5: Forge passes the product context (incl. extension.issue.key for
+// jira:issuePanel) on the resolver request — use it when the payload has no
+// issue key. Safe when context is absent (harness / Rovo calls).
+const issueKeyFromContext = (context) => context?.extension?.issue?.key ?? null;
