@@ -1,0 +1,193 @@
+# Relay — Handover agent for Jira (Codegeist 2026, Apps for Software Teams)
+# Scaffold Fase 1 (25 Nov 2026). Manifest schema grounded on the reference
+# Codegeist 2026 app decision-memory (manifest read 25 Nov 2026) + Forge docs.
+# App ID placeholder: run `forge register` after login to fill in the real ID.
+# NO licensing.enabled — the app must stay shareable via installation link.
+modules:
+  # ------------------------------------------------------------- Rovo agent
+  rovo:agent:
+    - key: relay-agent
+      name: Relay
+      description: >-
+        Finds work left hanging when someone is away, suggests the best person
+        to take it over, and hands it over — from chat or from the Radar.
+      prompt: resource:agent-prompt;relay-agent.md
+      conversationStarters:
+        - Who should take over Ana's work while she is on leave?
+        - Show me orphaned issues this week
+        - Hand over RELAY-12 to Budi
+        - What is still open for people who are away?
+      followUpPrompt: >-
+        Suggest up to three short follow-up questions about handovers,
+        successors, or who is away and when they return.
+      actions:
+        - get-orphans
+        - suggest-successor
+        - execute-handover
+        - get-handover-packet
+
+  # --------------------------------------------- MCP server (same tools)
+  rovo:mcp:
+    - key: relay-mcp
+      name: Relay MCP
+      tools:
+        - get-orphans
+        - suggest-successor
+        - execute-handover
+        - get-handover-packet
+
+  # --------------------------------------------- Actions (reusable tools)
+  action:
+    - key: get-orphans
+      name: Get orphaned issues
+      function: getOrphans
+      actionVerb: GET
+      description: >-
+        List Jira issues whose assignee is away (marked away, or inactive) and
+        still open. Returns issue key, summary, priority, status, assignee, days
+        stale and a risk score. Use when the user asks what is hanging,
+        orphaned, or left behind.
+      inputs:
+        projectKey:
+          title: Project key
+          type: string
+          required: false
+          description: Jira project key to limit the search, e.g. RELAY.
+        maxResults:
+          title: Max results
+          type: integer
+          required: false
+          description: Maximum issues to return (1-50, default 20).
+
+    - key: suggest-successor
+      name: Suggest a successor
+      function: suggestSuccessor
+      actionVerb: GET
+      description: >-
+        Rank the best people to take over one issue or one person's open work:
+        who worked on related issues, the same component or project, and was
+        active recently. Returns ranked candidates with a reason each. Never
+        suggest the away person themselves.
+      inputs:
+        issueKey:
+          title: Jira issue key
+          type: string
+          required: false
+          description: Issue to find a successor for, e.g. RELAY-12.
+        accountId:
+          title: Away person's account ID
+          type: string
+          required: false
+          description: Account ID of the person who is away, to find successors for all
+            their open work.
+        limit:
+          title: Max candidates
+          type: integer
+          required: false
+          description: Maximum candidates to return (1-5, default 3).
+
+    - key: execute-handover
+      name: Execute a handover
+      function: executeHandover
+      actionVerb: UPDATE
+      description: >-
+        Hand one issue over: reassign it to the successor and post a comment
+        with the handover context (what the work is, status, blockers, related
+        links). Use only after the user confirms who takes over.
+      inputs:
+        issueKey:
+          title: Jira issue key
+          type: string
+          required: true
+          description: Issue to hand over, e.g. RELAY-12.
+        successorAccountId:
+          title: Successor account ID
+          type: string
+          required: true
+          description: Account ID of the person taking over.
+        note:
+          title: Handover note
+          type: string
+          required: false
+          description: Extra context for the successor, added to the comment.
+
+    - key: get-handover-packet
+      name: Get a handover packet
+      function: getHandoverPacket
+      actionVerb: GET
+      description: >-
+        Summarise one away person's open work as a handover packet: open issues
+        with risk, blockers, and the suggested successor for each. Use when the
+        user asks for an overview or a handover summary.
+      inputs:
+        accountId:
+          title: Away person's account ID
+          type: string
+          required: true
+          description: Account ID of the person who is away.
+
+  # -------------------------------------------------------------- Jira UI
+  jira:globalPage:
+    - key: relay-radar
+      resource: radar
+      resolver:
+        function: resolver
+      render: native
+      title: Relay — Handover Radar
+
+  jira:issuePanel:
+    - key: relay-issue-panel
+      resource: issue-panel
+      resolver:
+        function: resolver
+      render: native
+      title: Relay Handover
+      icon: resource:relay-icons;relay.svg
+
+  # -------------------------------------------------------------- Triggers
+  trigger:
+    - key: relay-issue-updated
+      function: onIssueUpdated
+      events:
+        - avi:jira:updated:issue
+      filter:
+        ignoreSelf: true
+
+  # -------------------------------------------------------------- Functions
+  function:
+    - key: resolver
+      handler: index.handler
+    - key: getOrphans
+      handler: index.getOrphans
+    - key: suggestSuccessor
+      handler: index.suggestSuccessor
+    - key: executeHandover
+      handler: index.executeHandover
+    - key: getHandoverPacket
+      handler: index.getHandoverPacket
+    - key: onIssueUpdated
+      handler: index.onIssueUpdated
+
+resources:
+  - key: radar
+    path: src/frontend/radar.jsx
+  - key: issue-panel
+    path: src/frontend/issuePanel.jsx
+  - key: relay-icons
+    path: static/icons
+  - key: agent-prompt
+    path: prompts
+
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+    - read:graph:user:atlassian
+    - read:graph:team:atlassian
+
+app:
+  runtime:
+    name: nodejs22.x
+    memoryMB: 256
+  id: ari:cloud:ecosystem::app/f3661581-fce0-4552-a4bd-95300f9d290a
