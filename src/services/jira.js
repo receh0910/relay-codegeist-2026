@@ -9,10 +9,20 @@
  * SEMUA panggilan Jira app (semua resolver + semua action Rovo) gagal.
  * Perbaikan: bangun Route dengan literal yang berisi '/', interpolasi
  * HANYA untuk segmen dinamis (issueKey, accountId) — pola resmi Forge.
+ *
+ * BUG #7 (ditemukan & diperbaiki 26 Nov 2026): FIELDS tidak memuat
+ * `project`, padahal Jira hanya mengembalikan field yang diminta
+ * (POST /search/jql `fields` / GET /issue `?fields=`). Akibatnya
+ * `fields.project` selalu undefined: relatedWorkHistory() mengembalikan
+ * [] (Hop 1 mati) dan suggestSuccessors() membangun projectKeys = []
+ * (Hop 2 mati, Hop 3 tanpa seed) — panel selalu "No successor found yet"
+ * meski Budi sudah resolve RELAY-5. Harness tidak menangkap ini karena
+ * Jira palsu mengembalikan objek lengkap tanpa meniru penyaringan field
+ * (lihat stub @forge/api + §10 di test-actions.mjs — kini diperbaiki).
  */
 import api, { route } from '@forge/api';
 
-const FIELDS = 'key,summary,status,priority,assignee,updated,components,issuetype';
+export const FIELDS = 'key,summary,status,priority,assignee,updated,components,issuetype,project';
 
 async function requestJira(routeObj, options = {}) {
   const res = await api.asUser().requestJira(routeObj, options);
