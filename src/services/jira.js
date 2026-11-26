@@ -19,6 +19,15 @@
  * meski Budi sudah resolve RELAY-5. Harness tidak menangkap ini karena
  * Jira palsu mengembalikan objek lengkap tanpa meniru penyaringan field
  * (lihat stub @forge/api + §10 di test-actions.mjs — kini diperbaiki).
+ *
+ * BUG #8 (ditemukan & diperbaiki 26 Nov 2026): Jira answers PUT
+ * /issue/{key}/assignee with 204 No Content — an empty body. Calling
+ * res.json() on an empty body throws "Unexpected end of JSON input" AFTER
+ * the server-side change succeeded, so executeHandover died before
+ * addComment() ever ran (live 26 Nov ~17:00 WIB: assignee changed to Budi,
+ * no comment posted, Radar showed "Handover failed"). requestJira now
+ * reads the body as text once and returns null for empty responses
+ * instead of parsing them (lihat stub @forge/api + §11 di test-actions.mjs).
  */
 import api, { route } from '@forge/api';
 
@@ -30,7 +39,13 @@ async function requestJira(routeObj, options = {}) {
     const text = await res.text().catch(() => '');
     throw new Error(`Jira API ${res.status} on ${routeObj.value}: ${text.slice(0, 200)}`);
   }
-  return res.json();
+  // BUG #8: 204 No Content (PUT assignee) has an empty body — res.json()
+  // on it throws "Unexpected end of JSON input". Read the body as text
+  // once; empty means no content, return null without parsing. JSON
+  // bodies (GET/POST) still parse normally.
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 export async function searchIssues(jql, maxResults = 50) {
