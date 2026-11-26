@@ -1,36 +1,44 @@
 /**
- * Away flags in Forge KVS (per installation).
- * One flag per person under `away:<accountId>`:
+ * Away flags in Forge storage (per installation).
+ * One flag per person under `away-<accountId>`:
  * { returnDate (YYYY-MM-DD or null), note, setBy, setAt }.
- * The roster of flagged people is kept in one key (`away:roster`) so listing
- * never depends on a KVS list API. Fase 1.
+ * The roster of flagged people is kept in one key (`away-roster`) so listing
+ * never depends on a storage list API. Fase 1.
+ *
+ * Plan B (26 Nov 2026, bug kritis #4): storage backend switched from
+ * `@forge/kvs` to the legacy `storage` from `@forge/api`. The modern KVS
+ * service returned 403 PRINCIPAL_NOT_AUTHORIZED on the very first `get`
+ * for this installation — even after a full uninstall + reinstall — so the
+ * fault is in the KVS authorization path, not in provisioning. The legacy
+ * storage API goes through a different authorization path. Keys avoid
+ * `:` etc. (accountIds contain `:`) so the key charset is always safe.
  */
-import { kvs } from '@forge/kvs';
+import { storage } from '@forge/api';
 
-const ROSTER_KEY = 'away:roster';
-const keyFor = (accountId) => `away:${accountId}`;
+const ROSTER_KEY = 'away-roster';
+const keyFor = (accountId) => `away-${String(accountId).replace(/[^A-Za-z0-9]/g, '_')}`;
 
 export async function getAwayFlag(accountId) {
-  return (await kvs.get(keyFor(accountId))) ?? null;
+  return (await storage.get(keyFor(accountId))) ?? null;
 }
 
 async function getRoster() {
-  return (await kvs.get(ROSTER_KEY)) ?? [];
+  return (await storage.get(ROSTER_KEY)) ?? [];
 }
 
 async function saveRoster(ids) {
-  await kvs.set(ROSTER_KEY, [...new Set(ids)]);
+  await storage.set(ROSTER_KEY, [...new Set(ids)]);
 }
 
 export async function setAwayFlag(accountId, { returnDate = null, note = '' } = {}, setBy = null) {
   const flag = { returnDate, note, setBy, setAt: new Date().toISOString() };
-  await kvs.set(keyFor(accountId), flag);
+  await storage.set(keyFor(accountId), flag);
   await saveRoster([...(await getRoster()), accountId]);
   return flag;
 }
 
 export async function clearAwayFlag(accountId) {
-  await kvs.delete(keyFor(accountId));
+  await storage.delete(keyFor(accountId));
   await saveRoster((await getRoster()).filter((id) => id !== accountId));
 }
 

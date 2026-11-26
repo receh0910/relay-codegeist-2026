@@ -9,11 +9,15 @@
  *    Studio / admin console) and only reads back objects THIS app indexed
  *    under that connection; there is no traversal/query endpoint for
  *    "who works with whom". `getRelatedPeople` therefore attempts the
- *    real SDK read ONLY when a connection id is configured in KVS
+ *    real SDK read ONLY when a connection id is configured in storage
  *    (`twg-connection-id`); otherwise it returns `{ available: false }`
  *    with the reason — never fake data. The SDK is loaded with a dynamic
  *    import inside try/catch so a load failure degrades gracefully
  *    instead of killing the whole function module at startup.
+ *
+ *    Storage note (Plan B, 26 Nov 2026, bug kritis #4): the connection id
+ *    is read via the legacy `storage` from `@forge/api`, not `@forge/kvs`
+ *    — the KVS service 403'd on this installation (see away.js).
  *
  * 2. DERIVED multi-hop collaboration graph (the working enrichment).
  *    Built deterministically from Jira data — the observable teamwork
@@ -28,7 +32,7 @@
  *    the Rovo agent can quote it honestly. Scores never stack across
  *    hops for one person: the highest hop wins, reasons are unioned.
  */
-import { kvs } from '@forge/kvs';
+import { storage } from '@forge/api';
 import * as jira from './jira.js';
 import { daysSince } from '../lib/orphans.js';
 
@@ -52,9 +56,9 @@ export async function getRelatedPeople(accountId) {
   if (!accountId) return { ...fallback, reason: 'No person given; no graph data was consulted.' };
   let connectionId = null;
   try {
-    connectionId = await kvs.get(CONNECTION_KEY);
+    connectionId = await storage.get(CONNECTION_KEY);
   } catch {
-    connectionId = null; // KVS read failed — degrade to the derived graph.
+    connectionId = null; // Storage read failed — degrade to the derived graph.
   }
   if (!connectionId) return fallback;
   try {
